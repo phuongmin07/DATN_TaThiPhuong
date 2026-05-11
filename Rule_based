@@ -4,43 +4,31 @@ from ultralytics import YOLO
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 
-# ============================================
-# CẤU HÌNH HỆ THỐNG
-# ============================================
 MODEL_PATH = 'best.pt'
-CONF_LEVEL = 0.30       # Độ tin cậy (tăng để tránh bắt nhầm)
-DISPLAY_WIDTH = 500   # Kích thước ảnh hiển thị (vừa mắt)
+CONF_LEVEL = 0.30      
+DISPLAY_WIDTH = 500   
 
 # Màu sắc (BGR)
-COLOR_SAFE = (0, 255, 0)      # Xanh lá - Có mũ
-COLOR_DANGER = (0, 0, 255)    # Đỏ - Vi phạm
-COLOR_HELMET = (255, 255, 0)  # Xanh lơ - Box mũ
+COLOR_SAFE = (0, 255, 0)      
+COLOR_DANGER = (0, 0, 255)   
+COLOR_HELMET = (255, 255, 0)
 
-# ============================================
-# KHỞI TẠO MODEL
-# ============================================
 try:
     model = YOLO(MODEL_PATH)
 except Exception as e:
     print(f"Không thể tải model: {e}")
     exit()
 
-# ============================================
-# HÀM BỔ TRỢ (UTILITIES)
-# ============================================
 def resize_display(img, target_w):
-    """Resize ảnh để hiển thị vừa màn hình mà không làm biến dạng"""
     h, w = img.shape[:2]
     ratio = target_w / float(w)
     target_h = int(h * ratio)
     return cv2.resize(img, (target_w, target_h))
 
 def check_overlap(box_a, box_b):
-    """Kiểm tra tỷ lệ box_a nằm trong box_b"""
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
     
-    # Tính vùng giao nhau
     inter_x1 = max(ax1, bx1)
     inter_y1 = max(ay1, by1)
     inter_x2 = min(ax2, bx2)
@@ -53,9 +41,7 @@ def check_overlap(box_a, box_b):
     a_area = (ax2 - ax1) * (ay2 - ay1)
     return inter_area / float(a_area) if a_area > 0 else 0
 
-# ============================================
-# XỬ LÝ CHÍNH
-# ============================================
+
 def run_detection(image_path):
     frame = cv2.imread(image_path)
     if frame is None: return
@@ -109,7 +95,7 @@ def run_detection(image_path):
         cv2.putText(frame, status_text, (px1 + 10, py1 - 10), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-        # Vẽ khung mũ (nếu có)
+        # Vẽ khung mũ 
         if target_helmet_box:
             tx1, ty1, tx2, ty2 = target_helmet_box
             cv2.rectangle(frame, (tx1, ty1), (tx2, ty2), COLOR_HELMET, 2)
@@ -120,9 +106,7 @@ def run_detection(image_path):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-# ============================================
-# CHƯƠNG TRÌNH CHÍNH
-# ============================================
+
 if __name__ == "__main__":
     Tk().withdraw()
     path = askopenfilename(title="Chon anh can kiem tra")
