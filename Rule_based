@@ -1,0 +1,132 @@
+import cv2
+import numpy as np
+from ultralytics import YOLO
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
+# ============================================
+# CẤU HÌNH HỆ THỐNG
+# ============================================
+MODEL_PATH = 'best.pt'
+CONF_LEVEL = 0.30       # Độ tin cậy (tăng để tránh bắt nhầm)
+DISPLAY_WIDTH = 500   # Kích thước ảnh hiển thị (vừa mắt)
+
+# Màu sắc (BGR)
+COLOR_SAFE = (0, 255, 0)      # Xanh lá - Có mũ
+COLOR_DANGER = (0, 0, 255)    # Đỏ - Vi phạm
+COLOR_HELMET = (255, 255, 0)  # Xanh lơ - Box mũ
+
+# ============================================
+# KHỞI TẠO MODEL
+# ============================================
+try:
+    model = YOLO(MODEL_PATH)
+except Exception as e:
+    print(f"Không thể tải model: {e}")
+    exit()
+
+# ============================================
+# HÀM BỔ TRỢ (UTILITIES)
+# ============================================
+def resize_display(img, target_w):
+    """Resize ảnh để hiển thị vừa màn hình mà không làm biến dạng"""
+    h, w = img.shape[:2]
+    ratio = target_w / float(w)
+    target_h = int(h * ratio)
+    return cv2.resize(img, (target_w, target_h))
+
+def check_overlap(box_a, box_b):
+    """Kiểm tra tỷ lệ box_a nằm trong box_b"""
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    
+    # Tính vùng giao nhau
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    
+    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
+        return 0.0
+        
+    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+    a_area = (ax2 - ax1) * (ay2 - ay1)
+    return inter_area / float(a_area) if a_area > 0 else 0
+
+# ============================================
+# XỬ LÝ CHÍNH
+# ============================================
+def run_detection(image_path):
+    frame = cv2.imread(image_path)
+    if frame is None: return
+
+    # 1. Dự đoán
+    results = model.predict(frame, conf=CONF_LEVEL, verbose=False)[0]
+    boxes = results.boxes.cpu().numpy()
+
+    # 2. Phân loại đối tượng (Giả định class: 0-person, 1-motor, 2-helmet)
+    persons = [b for b in boxes if int(b.cls[0]) == 0]
+    motors = [b for b in boxes if int(b.cls[0]) == 1]
+    helmets = [b for b in boxes if int(b.cls[0]) == 2]
+
+    # 3. Duyệt từng người để kiểm tra vi phạm
+    for p in persons:
+        px1, py1, px2, py2 = p.xyxy[0].astype(int)
+        
+        # --- BƯỚC A: KIỂM TRA CÓ ĐANG ĐI XE KHÔNG ---
+        is_riding = False
+        for m in motors:
+            mx1, my1, mx2, my2 = m.xyxy[0].astype(int)
+            # Nếu người và xe giao nhau > 10% diện tích người
+            if check_overlap([px1, py1, px2, py2], [mx1, my1, mx2, my2]) > 0.1:
+                is_riding = True
+                break
+        
+        if not is_riding: continue
+
+        # --- BƯỚC B: KIỂM TRA MŨ TRÊN VÙNG ĐẦU ---
+        # Vùng đầu = 25% phía trên của khung người
+        head_zone = [px1, py1 - 10, px2, py1 + int((py2 - py1) * 0.25)]
+        
+        has_helmet = False
+        target_helmet_box = None
+        
+        for h in helmets:
+            hx1, hy1, hx2, hy2 = h.xyxy[0].astype(int)
+            # Nếu mũ nằm trong vùng đầu > 40%
+            if check_overlap([hx1, hy1, hx2, hy2], head_zone) > 0.4:
+                has_helmet = True
+                target_helmet_box = [hx1, hy1, hx2, hy2]
+                break
+
+        # --- BƯỚC C: VẼ KẾT QUẢ ---
+        color = COLOR_SAFE if has_helmet else COLOR_DANGER
+        status_text = "AN TOAN" if has_helmet else "VI PHAM"
+        
+        # Vẽ khung người & nhãn
+        cv2.rectangle(frame, (px1, py1), (px2, py2), color, 3)
+        cv2.rectangle(frame, (px1, py1 - 40), (px1 + 150, py1), color, -1)
+        cv2.putText(frame, status_text, (px1 + 10, py1 - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        # Vẽ khung mũ (nếu có)
+        if target_helmet_box:
+            tx1, ty1, tx2, ty2 = target_helmet_box
+            cv2.rectangle(frame, (tx1, ty1), (tx2, ty2), COLOR_HELMET, 2)
+
+    # 4. Hiển thị kết quả thu nhỏ
+    final_img = resize_display(frame, DISPLAY_WIDTH)
+    cv2.imshow("Helmet Detection Pro", final_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# ============================================
+# CHƯƠNG TRÌNH CHÍNH
+# ============================================
+if __name__ == "__main__":
+    Tk().withdraw()
+    path = askopenfilename(title="Chon anh can kiem tra")
+    if path:
+        run_detection(path)
+    else:
+        print("Chưa chọn ảnh.")
